@@ -1,0 +1,1103 @@
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║           ADMIN PANEL — Roblox Studio LocalScript           ║
+-- ║   Вставить в: StarterPlayer > StarterPlayerScripts          ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                     НАСТРОЙКИ                               │
+-- └─────────────────────────────────────────────────────────────┘
+local CONFIG = {
+    -- Прыжок у пола (функция 1)
+    AutoJumpHeight    = 50,
+    AutoJumpDefault   = 50,
+    AutoJumpThreshold = 3,   -- высота от земли для срабатывания
+    -- Высокий прыжок (функция 2)
+    HighJumpPower     = 120,
+    HighJumpDefault   = 120,
+    -- Speed Hack (функция 5)
+    WalkSpeed         = 50,
+    WalkSpeedDefault  = 16,
+    -- FOV
+    FOV               = 70,
+    FOVDefault        = 70,
+}
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                   СОСТОЯНИЯ ФУНКЦИЙ                         │
+-- └─────────────────────────────────────────────────────────────┘
+local State = {
+    AutoJump     = false,
+    HighJump     = false,
+    SpeedHack    = false,
+    InfiniteJump = false,
+    Fullbright   = false,
+    FOVChanged   = false,
+    BunnyHop     = false,
+    -- ESP
+    PlayerESP    = false,
+    BotESP       = false,
+    DistanceESP  = false,
+    -- Rainbow / Spin / FakeLag
+    RainbowTrail = false,
+    Spinbot      = false,
+    FakeLag      = false,
+    -- Ghost record/replay
+    Recording    = false,
+    HasRecord    = false,
+}
+
+local RecordedFrames  = {}
+local ReplayActive    = false
+local ReplayKeybind   = Enum.KeyCode.F
+local RecordKeybind   = Enum.KeyCode.G
+local ReplayBindSet   = false
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                    ВСПОМОГАТЕЛЬНЫЕ                          │
+-- └─────────────────────────────────────────────────────────────┘
+local function tween(obj, props, t)
+    TweenService:Create(obj, TweenInfo.new(t or 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+local function notify(text)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "Notif"
+    sg.ResetOnSpawn = false
+    sg.Parent = Player.PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0,280,0,48)
+    frame.Position = UDim2.new(1,10,1,-70)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,35)
+    frame.BorderSizePixel = 0
+    frame.Parent = sg
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0,8)
+    corner.Parent = frame
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(0,4,1,0)
+    bar.BackgroundColor3 = Color3.fromRGB(100,180,255)
+    bar.BorderSizePixel = 0
+    bar.Parent = frame
+    Instance.new("UICorner").Parent = bar
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1,-14,1,0)
+    lbl.Position = UDim2.new(0,12,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.TextColor3 = Color3.fromRGB(220,220,230)
+    lbl.TextSize = 14
+    lbl.Font = Enum.Font.GothamSemibold
+    lbl.Text = text
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+
+    tween(frame, {Position = UDim2.new(1,-295,1,-70)}, 0.3)
+    task.delay(2.8, function()
+        tween(frame, {Position = UDim2.new(1,10,1,-70)}, 0.3)
+        task.delay(0.35, function() sg:Destroy() end)
+    end)
+end
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                    ПОСТРОЕНИЕ GUI                           │
+-- └─────────────────────────────────────────────────────────────┘
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AdminPanelGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = Player.PlayerGui
+
+-- Главное окно
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0,520,0,420)
+Main.Position = UDim2.new(0.5,-260,0.5,-210)
+Main.BackgroundColor3 = Color3.fromRGB(18,18,22)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0,12)
+mainCorner.Parent = Main
+
+-- Полоска-акцент сверху
+local accent = Instance.new("Frame")
+accent.Size = UDim2.new(1,0,0,3)
+accent.BackgroundColor3 = Color3.fromRGB(100,180,255)
+accent.BorderSizePixel = 0
+accent.ZIndex = 5
+accent.Parent = Main
+local accentGrad = Instance.new("UIGradient")
+accentGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(80,140,255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(140,80,255))
+}
+accentGrad.Parent = accent
+
+-- Тень (имитация)
+local shadow = Instance.new("Frame")
+shadow.Size = UDim2.new(1,20,1,20)
+shadow.Position = UDim2.new(0,-10,0,6)
+shadow.BackgroundColor3 = Color3.fromRGB(0,0,0)
+shadow.BackgroundTransparency = 0.6
+shadow.BorderSizePixel = 0
+shadow.ZIndex = 0
+shadow.Parent = Main
+Instance.new("UICorner").Parent = shadow
+
+-- Заголовок
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1,0,0,40)
+titleBar.BackgroundColor3 = Color3.fromRGB(22,22,28)
+titleBar.BorderSizePixel = 0
+titleBar.ZIndex = 2
+titleBar.Parent = Main
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1,-50,1,0)
+titleLabel.Position = UDim2.new(0,14,0,0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextColor3 = Color3.fromRGB(220,225,240)
+titleLabel.TextSize = 15
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Text = "⚙  Admin Panel"
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.ZIndex = 3
+titleLabel.Parent = titleBar
+
+-- Кнопка закрыть
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0,28,0,28)
+closeBtn.Position = UDim2.new(1,-36,0.5,-14)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,80,80)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+closeBtn.TextSize = 13
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.BorderSizePixel = 0
+closeBtn.ZIndex = 4
+closeBtn.Parent = titleBar
+Instance.new("UICorner").Parent = closeBtn
+
+closeBtn.MouseButton1Click:Connect(function()
+    tween(Main, {Size = UDim2.new(0,520,0,0), Position = UDim2.new(0.5,-260,0.5,0)}, 0.25)
+    task.delay(0.28, function() Main.Visible = false end)
+end)
+
+-- Кнопка «показать» (после закрытия)
+local showBtn = Instance.new("TextButton")
+showBtn.Size = UDim2.new(0,110,0,32)
+showBtn.Position = UDim2.new(0,10,0,10)
+showBtn.BackgroundColor3 = Color3.fromRGB(28,28,35)
+showBtn.Text = "⚙ Admin Panel"
+showBtn.TextColor3 = Color3.fromRGB(180,200,255)
+showBtn.TextSize = 13
+showBtn.Font = Enum.Font.GothamBold
+showBtn.BorderSizePixel = 0
+showBtn.ZIndex = 10
+showBtn.Visible = false
+showBtn.Parent = ScreenGui
+Instance.new("UICorner").Parent = showBtn
+
+closeBtn.MouseButton1Click:Connect(function() showBtn.Visible = true end)
+showBtn.MouseButton1Click:Connect(function()
+    showBtn.Visible = false
+    Main.Visible = true
+    Main.Size = UDim2.new(0,520,0,0)
+    Main.Position = UDim2.new(0.5,-260,0.5,0)
+    tween(Main, {Size = UDim2.new(0,520,0,420), Position = UDim2.new(0.5,-260,0.5,-210)}, 0.3)
+end)
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                      НАВИГАЦИЯ (табы)                       │
+-- └─────────────────────────────────────────────────────────────┘
+local tabNames = {"Меню","Главное","Визуал","Инфа"}
+local tabFrames = {}
+local tabBtns   = {}
+local activeTab = "Меню"
+
+local navBar = Instance.new("Frame")
+navBar.Size = UDim2.new(1,0,0,38)
+navBar.Position = UDim2.new(0,0,0,40)
+navBar.BackgroundColor3 = Color3.fromRGB(24,24,30)
+navBar.BorderSizePixel = 0
+navBar.ZIndex = 3
+navBar.Parent = Main
+
+local navLayout = Instance.new("UIListLayout")
+navLayout.FillDirection = Enum.FillDirection.Horizontal
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder
+navLayout.Parent = navBar
+
+local navPad = Instance.new("UIPadding")
+navPad.PaddingLeft = UDim.new(0,6)
+navPad.Parent = navBar
+
+-- Контент-зона
+local contentZone = Instance.new("Frame")
+contentZone.Size = UDim2.new(1,0,1,-82)
+contentZone.Position = UDim2.new(0,0,0,82)
+contentZone.BackgroundTransparency = 1
+contentZone.ClipsDescendants = true
+contentZone.Parent = Main
+
+local function makeTabFrame(name)
+    local f = Instance.new("ScrollingFrame")
+    f.Name = name
+    f.Size = UDim2.new(1,0,1,0)
+    f.BackgroundTransparency = 1
+    f.BorderSizePixel = 0
+    f.ScrollBarThickness = 4
+    f.ScrollBarImageColor3 = Color3.fromRGB(100,180,255)
+    f.Visible = false
+    f.Parent = contentZone
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0,6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = f
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0,10)
+    pad.PaddingRight = UDim.new(0,10)
+    pad.PaddingTop = UDim.new(0,8)
+    pad.Parent = f
+    -- авторазмер
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        f.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 20)
+    end)
+    return f
+end
+
+-- Сначала создаём все фреймы и кнопки
+for i, name in ipairs(tabNames) do
+    tabFrames[name] = makeTabFrame(name)
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0,114,1,0)
+    btn.BackgroundTransparency = 1
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(140,145,160)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.GothamSemibold
+    btn.LayoutOrder = i
+    btn.ZIndex = 4
+    btn.Parent = navBar
+
+    local indicator = Instance.new("Frame")
+    indicator.Size = UDim2.new(0,0,0,2)
+    indicator.Position = UDim2.new(0.5,0,1,-2)
+    indicator.AnchorPoint = Vector2.new(0.5,0)
+    indicator.BackgroundColor3 = Color3.fromRGB(100,180,255)
+    indicator.BorderSizePixel = 0
+    indicator.ZIndex = 5
+    indicator.Parent = btn
+
+    tabBtns[name] = {btn=btn, ind=indicator}
+end
+
+-- Функция переключения (вызывается ПОСЛЕ того как tabBtns и tabFrames заполнены)
+local function switchTab(name)
+    if activeTab == name then return end
+    activeTab = name
+    for _, n in ipairs(tabNames) do
+        local isActive = (n == name)
+        tabFrames[n].Visible = isActive
+        if isActive then
+            tabBtns[n].ind.Size = UDim2.new(0.7,0,0,2)
+            tabBtns[n].ind.Position = UDim2.new(0.15,0,1,-2)
+            tabBtns[n].btn.TextColor3 = Color3.fromRGB(100,180,255)
+        else
+            tabBtns[n].ind.Size = UDim2.new(0,0,0,2)
+            tabBtns[n].ind.Position = UDim2.new(0.5,0,1,-2)
+            tabBtns[n].btn.TextColor3 = Color3.fromRGB(140,145,160)
+        end
+    end
+end
+
+-- Привязываем клики
+for _, name in ipairs(tabNames) do
+    local capName = name
+    tabBtns[name].btn.MouseButton1Click:Connect(function()
+        switchTab(capName)
+    end)
+end
+
+-- Показать первый таб
+activeTab = ""
+switchTab("Меню")
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                 СТРОИТЕЛИ ЭЛЕМЕНТОВ UI                      │
+-- └─────────────────────────────────────────────────────────────┘
+local function makeSection(parent, title)
+    local header = Instance.new("TextLabel")
+    header.Size = UDim2.new(1,0,0,22)
+    header.BackgroundTransparency = 1
+    header.TextColor3 = Color3.fromRGB(100,180,255)
+    header.TextSize = 11
+    header.Font = Enum.Font.GothamBold
+    header.Text = ("── %s ──"):format(title:upper())
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.Parent = parent
+end
+
+-- Тоггл-кнопка
+local function makeToggle(parent, label, description, onToggle, order)
+    local row = Instance.new("Frame")
+    row.Name = label
+    row.Size = UDim2.new(1,0,0,54)
+    row.BackgroundColor3 = Color3.fromRGB(26,26,32)
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order or 0
+    row.Parent = parent
+    Instance.new("UICorner").Parent = row
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.65,0,0,22)
+    lbl.Position = UDim2.new(0,12,0,6)
+    lbl.BackgroundTransparency = 1
+    lbl.TextColor3 = Color3.fromRGB(210,215,230)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.GothamSemibold
+    lbl.Text = label
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+
+    local desc = Instance.new("TextLabel")
+    desc.Size = UDim2.new(0.82,0,0,18)
+    desc.Position = UDim2.new(0,12,0,28)
+    desc.BackgroundTransparency = 1
+    desc.TextColor3 = Color3.fromRGB(120,125,140)
+    desc.TextSize = 11
+    desc.Font = Enum.Font.Gotham
+    desc.Text = description
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextWrapped = true
+    desc.Parent = row
+
+    -- переключатель
+    local switchBg = Instance.new("Frame")
+    switchBg.Size = UDim2.new(0,44,0,24)
+    switchBg.Position = UDim2.new(1,-56,0.5,-12)
+    switchBg.BackgroundColor3 = Color3.fromRGB(50,50,60)
+    switchBg.BorderSizePixel = 0
+    switchBg.Parent = row
+    local sbCorner = Instance.new("UICorner")
+    sbCorner.CornerRadius = UDim.new(1,0)
+    sbCorner.Parent = switchBg
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0,18,0,18)
+    knob.Position = UDim2.new(0,3,0.5,-9)
+    knob.BackgroundColor3 = Color3.fromRGB(160,165,180)
+    knob.BorderSizePixel = 0
+    knob.Parent = switchBg
+    Instance.new("UICorner").Parent = knob
+
+    local enabled = false
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,1,0)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.Parent = row
+
+    btn.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        if enabled then
+            tween(switchBg, {BackgroundColor3 = Color3.fromRGB(80,160,255)}, 0.2)
+            tween(knob, {Position = UDim2.new(1,-21,0.5,-9), BackgroundColor3 = Color3.fromRGB(255,255,255)}, 0.2)
+        else
+            tween(switchBg, {BackgroundColor3 = Color3.fromRGB(50,50,60)}, 0.2)
+            tween(knob, {Position = UDim2.new(0,3,0.5,-9), BackgroundColor3 = Color3.fromRGB(160,165,180)}, 0.2)
+        end
+        onToggle(enabled)
+    end)
+
+    return row, function() return enabled end
+end
+
+-- Слайдер
+local function makeSlider(parent, label, min, max, default, unit, onChange, order)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,60)
+    row.BackgroundColor3 = Color3.fromRGB(26,26,32)
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order or 0
+    row.Parent = parent
+    Instance.new("UICorner").Parent = row
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.6,0,0,20)
+    lbl.Position = UDim2.new(0,12,0,6)
+    lbl.BackgroundTransparency = 1
+    lbl.TextColor3 = Color3.fromRGB(210,215,230)
+    lbl.TextSize = 12
+    lbl.Font = Enum.Font.GothamSemibold
+    lbl.Text = label
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Size = UDim2.new(0.35,0,0,20)
+    valLbl.Position = UDim2.new(0.63,0,0,6)
+    valLbl.BackgroundTransparency = 1
+    valLbl.TextColor3 = Color3.fromRGB(100,180,255)
+    valLbl.TextSize = 12
+    valLbl.Font = Enum.Font.GothamBold
+    valLbl.Text = tostring(default) .. (unit or "")
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.Parent = row
+
+    local defLbl = Instance.new("TextLabel")
+    defLbl.Size = UDim2.new(1,-24,0,14)
+    defLbl.Position = UDim2.new(0,12,0,46)
+    defLbl.BackgroundTransparency = 1
+    defLbl.TextColor3 = Color3.fromRGB(90,95,110)
+    defLbl.TextSize = 10
+    defLbl.Font = Enum.Font.Gotham
+    defLbl.Text = "По умолчанию: " .. tostring(default)
+    defLbl.TextXAlignment = Enum.TextXAlignment.Left
+    defLbl.Parent = row
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1,-24,0,6)
+    track.Position = UDim2.new(0,12,0,30)
+    track.BackgroundColor3 = Color3.fromRGB(45,45,55)
+    track.BorderSizePixel = 0
+    track.Parent = row
+    Instance.new("UICorner").Parent = track
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default-min)/(max-min),0,1,0)
+    fill.BackgroundColor3 = Color3.fromRGB(80,160,255)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    Instance.new("UICorner").Parent = fill
+
+    local thumb = Instance.new("Frame")
+    thumb.Size = UDim2.new(0,14,0,14)
+    thumb.Position = UDim2.new((default-min)/(max-min),0,0.5,-7)
+    thumb.AnchorPoint = Vector2.new(0.5,0)
+    thumb.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    thumb.BorderSizePixel = 0
+    thumb.ZIndex = 3
+    thumb.Parent = track
+    Instance.new("UICorner").Parent = thumb
+
+    local dragging = false
+    local currentVal = default
+
+    local function updateSlider(absPos)
+        local rel = math.clamp((absPos - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        currentVal = math.floor(min + rel*(max-min) + 0.5)
+        valLbl.Text = tostring(currentVal) .. (unit or "")
+        tween(fill, {Size = UDim2.new(rel,0,1,0)}, 0.05)
+        tween(thumb, {Position = UDim2.new(rel,0,0.5,-7)}, 0.05)
+        onChange(currentVal)
+    end
+
+    local clickArea = Instance.new("TextButton")
+    clickArea.Size = UDim2.new(1,0,1,0)
+    clickArea.BackgroundTransparency = 1
+    clickArea.Text = ""
+    clickArea.ZIndex = 4
+    clickArea.Parent = track
+
+    clickArea.MouseButton1Down:Connect(function()
+        dragging = true
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateSlider(input.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    clickArea.MouseButton1Up:Connect(function()
+        updateSlider(UserInputService:GetMouseLocation().X)
+    end)
+end
+
+-- Инфо-строка
+local function makeInfoCard(parent, title, text)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,0)
+    row.AutomaticSize = Enum.AutomaticSize.Y
+    row.BackgroundColor3 = Color3.fromRGB(24,24,30)
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner").Parent = row
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0,12)
+    pad.PaddingRight = UDim.new(0,12)
+    pad.PaddingTop = UDim.new(0,8)
+    pad.PaddingBottom = UDim.new(0,8)
+    pad.Parent = row
+
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1,0,0,18)
+    t.BackgroundTransparency = 1
+    t.TextColor3 = Color3.fromRGB(100,180,255)
+    t.TextSize = 12
+    t.Font = Enum.Font.GothamBold
+    t.Text = title
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.Parent = row
+
+    local d = Instance.new("TextLabel")
+    d.Size = UDim2.new(1,0,0,0)
+    d.Position = UDim2.new(0,0,0,20)
+    d.AutomaticSize = Enum.AutomaticSize.Y
+    d.BackgroundTransparency = 1
+    d.TextColor3 = Color3.fromRGB(170,175,195)
+    d.TextSize = 11
+    d.Font = Enum.Font.Gotham
+    d.Text = text
+    d.TextXAlignment = Enum.TextXAlignment.Left
+    d.TextWrapped = true
+    d.Parent = row
+end
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                    ТАБ: МЕНЮ (профиль)                      │
+-- └─────────────────────────────────────────────────────────────┘
+do
+    local f = tabFrames["Меню"]
+    makeSection(f, "Профиль игрока")
+
+    local profileCard = Instance.new("Frame")
+    profileCard.Size = UDim2.new(1,0,0,100)
+    profileCard.BackgroundColor3 = Color3.fromRGB(26,26,32)
+    profileCard.BorderSizePixel = 0
+    profileCard.Parent = f
+    Instance.new("UICorner").Parent = profileCard
+
+    -- Аватар (заглушка)
+    local avatar = Instance.new("ImageLabel")
+    avatar.Size = UDim2.new(0,64,0,64)
+    avatar.Position = UDim2.new(0,12,0.5,-32)
+    avatar.BackgroundColor3 = Color3.fromRGB(40,40,50)
+    avatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. Player.UserId .. "&w=420&h=420"
+    avatar.Parent = profileCard
+    Instance.new("UICorner").Parent = avatar
+
+    local function addInfo(label, val, yOff)
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(0.55,0,0,18)
+        l.Position = UDim2.new(0,90,0,yOff)
+        l.BackgroundTransparency = 1
+        l.TextColor3 = Color3.fromRGB(170,175,195)
+        l.TextSize = 12
+        l.Font = Enum.Font.Gotham
+        l.Text = ("<b>%s:</b> %s"):format(label, tostring(val))
+        l.RichText = true
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Parent = profileCard
+    end
+
+    addInfo("Ник",    Player.Name,          10)
+    addInfo("DisplayName", Player.DisplayName,  30)
+    addInfo("UserID", Player.UserId,         50)
+    addInfo("Команда", Player.Team and Player.Team.Name or "Нет", 70)
+
+    -- Дополнительная информация
+    makeSection(f, "Игровая статистика")
+    local statsCard = Instance.new("Frame")
+    statsCard.Size = UDim2.new(1,0,0,80)
+    statsCard.BackgroundColor3 = Color3.fromRGB(26,26,32)
+    statsCard.BorderSizePixel = 0
+    statsCard.Parent = f
+    Instance.new("UICorner").Parent = statsCard
+
+    local function addStat(label, getVal, x, w)
+        local col = Instance.new("Frame")
+        col.Size = UDim2.new(w,0,1,0)
+        col.Position = UDim2.new(x,0,0,0)
+        col.BackgroundTransparency = 1
+        col.Parent = statsCard
+        local v = Instance.new("TextLabel")
+        v.Size = UDim2.new(1,0,0,30)
+        v.Position = UDim2.new(0,0,0,14)
+        v.BackgroundTransparency = 1
+        v.TextColor3 = Color3.fromRGB(100,180,255)
+        v.TextSize = 20
+        v.Font = Enum.Font.GothamBold
+        v.Text = tostring(getVal())
+        v.Parent = col
+        local lb = Instance.new("TextLabel")
+        lb.Size = UDim2.new(1,0,0,16)
+        lb.Position = UDim2.new(0,0,0,48)
+        lb.BackgroundTransparency = 1
+        lb.TextColor3 = Color3.fromRGB(120,125,140)
+        lb.TextSize = 10
+        lb.Font = Enum.Font.Gotham
+        lb.Text = label
+        lb.Parent = col
+        -- обновление каждые 2с
+        task.spawn(function()
+            while true do
+                task.wait(2)
+                v.Text = tostring(getVal())
+            end
+        end)
+    end
+
+    addStat("Ping (мс)", function() return math.floor(Player:GetNetworkPing()*1000) end, 0, 0.33)
+    addStat("WalkSpeed", function()
+        local h = Character and Character:FindFirstChild("Humanoid")
+        return h and math.floor(h.WalkSpeed) or 0
+    end, 0.34, 0.33)
+    addStat("HP",        function()
+        local h = Character and Character:FindFirstChild("Humanoid")
+        return h and math.floor(h.Health) or 0
+    end, 0.67, 0.33)
+end
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                   ТАБ: ГЛАВНОЕ                              │
+-- └─────────────────────────────────────────────────────────────┘
+do
+    local f = tabFrames["Главное"]
+
+    -- 1. Авто-прыжок у пола
+    makeSection(f, "Движение")
+    makeToggle(f, "Авто-прыжок у пола",
+        "Прыгает когда игрок почти касается земли",
+        function(on)
+            State.AutoJump = on
+            notify(on and "Авто-прыжок: ВКЛ" or "Авто-прыжок: ВЫКЛ")
+        end, 1)
+    makeSlider(f, "Сила авто-прыжка", 10, 300, CONFIG.AutoJumpDefault, "", function(v)
+        CONFIG.AutoJumpHeight = v
+    end, 2)
+
+    -- 2. Высокий прыжок
+    makeToggle(f, "Высокий прыжок",
+        "Даёт игроку очень высокий прыжок",
+        function(on)
+            State.HighJump = on
+            if Character and Character:FindFirstChild("Humanoid") then
+                Character.Humanoid.JumpPower = on and CONFIG.HighJumpPower or 50
+            end
+            notify(on and "Высокий прыжок: ВКЛ" or "Высокий прыжок: ВЫКЛ")
+        end, 3)
+    makeSlider(f, "Сила прыжка", 50, 500, CONFIG.HighJumpDefault, "", function(v)
+        CONFIG.HighJumpPower = v
+        if State.HighJump and Character and Character:FindFirstChild("Humanoid") then
+            Character.Humanoid.JumpPower = v
+        end
+    end, 4)
+
+    -- 5. Speed Hack
+    makeSection(f, "Скорость")
+    makeToggle(f, "Speed Hack",
+        "Изменяет скорость ходьбы (WalkSpeed)",
+        function(on)
+            State.SpeedHack = on
+            if Character and Character:FindFirstChild("Humanoid") then
+                Character.Humanoid.WalkSpeed = on and CONFIG.WalkSpeed or 16
+            end
+            notify(on and "Speed Hack: ВКЛ" or "Speed Hack: ВЫКЛ")
+        end, 5)
+    makeSlider(f, "WalkSpeed", 4, 200, CONFIG.WalkSpeedDefault, "", function(v)
+        CONFIG.WalkSpeed = v
+        if State.SpeedHack and Character and Character:FindFirstChild("Humanoid") then
+            Character.Humanoid.WalkSpeed = v
+        end
+    end, 6)
+
+    -- 6. Infinite Jump
+    makeSection(f, "Прыжок")
+    makeToggle(f, "Infinite Jump",
+        "Позволяет прыгать в воздухе бесконечно",
+        function(on)
+            State.InfiniteJump = on
+            notify(on and "Infinite Jump: ВКЛ" or "Infinite Jump: ВЫКЛ")
+        end, 7)
+
+    -- Bunny Hop
+    makeToggle(f, "Bunny Hop",
+        "Автоматический распрыг (авто-прыжок при касании земли)",
+        function(on)
+            State.BunnyHop = on
+            notify(on and "Bunny Hop: ВКЛ" or "Bunny Hop: ВЫКЛ")
+        end, 8)
+
+    -- 4. Ghost Record / Replay
+    makeSection(f, "Запись и воспроизведение")
+    local recRow = Instance.new("Frame")
+    recRow.Size = UDim2.new(1,0,0,70)
+    recRow.BackgroundColor3 = Color3.fromRGB(26,26,32)
+    recRow.BorderSizePixel = 0
+    recRow.LayoutOrder = 9
+    recRow.Parent = f
+    Instance.new("UICorner").Parent = recRow
+
+    local recTitle = Instance.new("TextLabel")
+    recTitle.Size = UDim2.new(1,-12,0,20)
+    recTitle.Position = UDim2.new(0,12,0,6)
+    recTitle.BackgroundTransparency = 1
+    recTitle.TextColor3 = Color3.fromRGB(210,215,230)
+    recTitle.TextSize = 13
+    recTitle.Font = Enum.Font.GothamSemibold
+    recTitle.Text = "Ghost Replay"
+    recTitle.TextXAlignment = Enum.TextXAlignment.Left
+    recTitle.Parent = recRow
+
+    local recDesc = Instance.new("TextLabel")
+    recDesc.Size = UDim2.new(1,-12,0,14)
+    recDesc.Position = UDim2.new(0,12,0,26)
+    recDesc.BackgroundTransparency = 1
+    recDesc.TextColor3 = Color3.fromRGB(120,125,140)
+    recDesc.TextSize = 10
+    recDesc.Font = Enum.Font.Gotham
+    recDesc.Text = "G — начать/остановить запись   |   F — воспроизвести"
+    recDesc.TextXAlignment = Enum.TextXAlignment.Left
+    recDesc.Parent = recRow
+
+    local recStatus = Instance.new("TextLabel")
+    recStatus.Size = UDim2.new(1,-12,0,14)
+    recStatus.Position = UDim2.new(0,12,0,46)
+    recStatus.BackgroundTransparency = 1
+    recStatus.TextColor3 = Color3.fromRGB(200,100,100)
+    recStatus.TextSize = 11
+    recStatus.Font = Enum.Font.GothamBold
+    recStatus.Text = "● Запись не активна"
+    recStatus.TextXAlignment = Enum.TextXAlignment.Left
+    recStatus.Parent = recRow
+
+    -- управление записью
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == RecordKeybind then
+            if not State.Recording then
+                -- начало записи
+                State.Recording = true
+                RecordedFrames = {}
+                recStatus.TextColor3 = Color3.fromRGB(200,80,80)
+                recStatus.Text = "⏺ Идёт запись..."
+                notify("Запись начата (G — остановить)")
+            else
+                -- конец записи
+                State.Recording = false
+                State.HasRecord = true
+                recStatus.TextColor3 = Color3.fromRGB(100,200,100)
+                recStatus.Text = "✔ Запись сохранена (" .. #RecordedFrames .. " кадров)"
+                notify("Запись сохранена! F — воспроизвести")
+            end
+        end
+        if input.KeyCode == ReplayKeybind and State.HasRecord and not ReplayActive then
+            -- воспроизведение
+            ReplayActive = true
+            recStatus.TextColor3 = Color3.fromRGB(100,180,255)
+            recStatus.Text = "▶ Воспроизведение..."
+            notify("Ghost Replay: старт")
+            task.spawn(function()
+                for _, frame in ipairs(RecordedFrames) do
+                    if not ReplayActive then break end
+                    if RootPart and RootPart.Parent then
+                        RootPart.CFrame = frame.CFrame
+                    end
+                    task.wait(frame.dt)
+                end
+                ReplayActive = false
+                recStatus.TextColor3 = Color3.fromRGB(100,200,100)
+                recStatus.Text = "✔ Запись сохранена (" .. #RecordedFrames .. " кадров)"
+                notify("Ghost Replay: завершён")
+            end)
+        end
+    end)
+end
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                    ТАБ: ВИЗУАЛ                              │
+-- └─────────────────────────────────────────────────────────────┘
+do
+    local f = tabFrames["Визуал"]
+
+    -- Fullbright
+    makeSection(f, "Освещение")
+    makeToggle(f, "Fullbright",
+        "Убирает темноту, делает всё ярким",
+        function(on)
+            State.Fullbright = on
+            local lighting = game:GetService("Lighting")
+            if on then
+                lighting.Brightness = 10
+                lighting.ClockTime = 14
+                lighting.FogEnd = 100000
+                lighting.GlobalShadows = false
+                lighting.Ambient = Color3.fromRGB(255,255,255)
+                lighting.OutdoorAmbient = Color3.fromRGB(255,255,255)
+            else
+                lighting.Brightness = 1
+                lighting.ClockTime = 14
+                lighting.FogEnd = 10000
+                lighting.GlobalShadows = true
+                lighting.Ambient = Color3.fromRGB(127,127,127)
+                lighting.OutdoorAmbient = Color3.fromRGB(127,127,127)
+            end
+            notify(on and "Fullbright: ВКЛ" or "Fullbright: ВЫКЛ")
+        end, 1)
+
+    -- FOV
+    makeSection(f, "Камера")
+    makeToggle(f, "FOV Changer",
+        "Изменяет угол обзора камеры",
+        function(on)
+            State.FOVChanged = on
+            local cam = workspace.CurrentCamera
+            if cam then
+                cam.FieldOfView = on and CONFIG.FOV or 70
+            end
+            notify(on and "FOV изменён: " .. CONFIG.FOV or "FOV сброшен")
+        end, 2)
+    makeSlider(f, "Field of View", 30, 120, CONFIG.FOVDefault, "°", function(v)
+        CONFIG.FOV = v
+        if State.FOVChanged then
+            local cam = workspace.CurrentCamera
+            if cam then cam.FieldOfView = v end
+        end
+    end, 3)
+
+    -- ESP
+    makeSection(f, "ESP / Подсветка")
+    makeToggle(f, "Player ESP",
+        "Подсвечивает всех игроков на карте",
+        function(on)
+            State.PlayerESP = on
+            notify(on and "Player ESP: ВКЛ" or "Player ESP: ВЫКЛ")
+        end, 4)
+    makeToggle(f, "Bot ESP",
+        "Подсвечивает ботов (NPC) красным цветом",
+        function(on)
+            State.BotESP = on
+            notify(on and "Bot ESP: ВКЛ" or "Bot ESP: ВЫКЛ")
+        end, 5)
+    makeToggle(f, "Distance ESP",
+        "Показывает расстояние до объектов",
+        function(on)
+            State.DistanceESP = on
+            notify(on and "Distance ESP: ВКЛ" or "Distance ESP: ВЫКЛ")
+        end, 6)
+
+    -- Визуальные эффекты
+    makeSection(f, "Визуальные эффекты")
+    makeToggle(f, "Rainbow Trail",
+        "Радужный след за персонажем",
+        function(on)
+            State.RainbowTrail = on
+            notify(on and "Rainbow Trail: ВКЛ" or "Rainbow Trail: ВЫКЛ")
+        end, 7)
+    makeToggle(f, "Spinbot (Visual)",
+        "Персонаж вращается вокруг своей оси",
+        function(on)
+            State.Spinbot = on
+            notify(on and "Spinbot: ВКЛ" or "Spinbot: ВЫКЛ")
+        end, 8)
+    makeToggle(f, "Fake Lag",
+        "Создаёт визуальные рывки персонажа",
+        function(on)
+            State.FakeLag = on
+            notify(on and "Fake Lag: ВКЛ" or "Fake Lag: ВЫКЛ")
+        end, 9)
+end
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                     ТАБ: ИНФА                               │
+-- └─────────────────────────────────────────────────────────────┘
+do
+    local f = tabFrames["Инфа"]
+    makeSection(f, "Главное")
+    makeInfoCard(f, "Авто-прыжок у пола",
+        "Когда персонаж почти касается земли, он автоматически прыгает вверх. Сила регулируется слайдером.")
+    makeInfoCard(f, "Высокий прыжок",
+        "Увеличивает силу прыжка (JumpPower). Регулируется слайдером. Кнопка сброса возвращает стандартное значение.")
+    makeInfoCard(f, "Speed Hack",
+        "Меняет WalkSpeed персонажа. По умолчанию 16. Слайдер позволяет установить любое значение от 4 до 200.")
+    makeInfoCard(f, "Infinite Jump",
+        "Позволяет прыгать неограниченное количество раз, даже находясь в воздухе.")
+    makeInfoCard(f, "Bunny Hop",
+        "Автоматически прыгает каждый раз, когда персонаж касается земли — для быстрого передвижения.")
+    makeInfoCard(f, "Ghost Replay",
+        "G — начать запись движений. G снова — остановить. F — воспроизвести записанные движения. Камера не затрагивается.")
+    makeSection(f, "Визуал")
+    makeInfoCard(f, "Fullbright",
+        "Убирает тени и темноту, увеличивает яркость освещения до максимума.")
+    makeInfoCard(f, "FOV Changer",
+        "Изменяет угол обзора камеры (Field of View). Стандартное значение в Roblox — 70°.")
+    makeInfoCard(f, "Player / Bot ESP",
+        "Подсвечивает игроков и ботов через стены. Player = синий, Bot = красный.")
+    makeInfoCard(f, "Distance ESP",
+        "Показывает расстояние до ближайших объектов/ботов прямо на экране.")
+    makeInfoCard(f, "Rainbow Trail",
+        "Рисует радужный след за персонажем. Только визуальный эффект.")
+    makeInfoCard(f, "Spinbot",
+        "Персонаж вращается вокруг своей оси. Не влияет на управление.")
+    makeInfoCard(f, "Fake Lag",
+        "Имитирует лаг: персонаж движется рывками. Только визуальный эффект для наблюдателей.")
+end
+
+-- ┌─────────────────────────────────────────────────────────────┐
+-- │                    ОСНОВНОЙ LOOP                            │
+-- └─────────────────────────────────────────────────────────────┘
+local lastPos = nil
+local spinAngle = 0
+local fakelagTimer = 0
+local rainbowHue = 0
+local trail = nil
+
+-- Создание следа
+local function createTrail()
+    if not Character or not RootPart then return end
+    if trail then trail:Destroy() end
+    local att0 = Instance.new("Attachment", RootPart)
+    att0.Position = Vector3.new(0, 1, 0)
+    local att1 = Instance.new("Attachment", RootPart)
+    att1.Position = Vector3.new(0, -1, 0)
+    trail = Instance.new("Trail")
+    trail.Attachment0 = att0
+    trail.Attachment1 = att1
+    trail.Lifetime = 0.8
+    trail.MinLength = 0
+    trail.Parent = RootPart
+end
+
+RunService.Heartbeat:Connect(function(dt)
+    -- обновить ссылки
+    Character = Player.Character
+    if not Character then return end
+    local hum = Character:FindFirstChild("Humanoid")
+    local root = Character:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
+
+    -- Запись движений
+    if State.Recording then
+        local prev = lastPos
+        lastPos = root.CFrame
+        table.insert(RecordedFrames, {CFrame = root.CFrame, dt = dt})
+    end
+
+    -- Авто-прыжок у пола
+    if State.AutoJump then
+        local ray = workspace:Raycast(root.Position, Vector3.new(0,-CONFIG.AutoJumpThreshold,0))
+        if ray and hum.FloorMaterial ~= Enum.Material.Air then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            root.AssemblyLinearVelocity = Vector3.new(
+                root.AssemblyLinearVelocity.X,
+                CONFIG.AutoJumpHeight,
+                root.AssemblyLinearVelocity.Z
+            )
+        end
+    end
+
+    -- Bunny Hop
+    if State.BunnyHop and hum.FloorMaterial ~= Enum.Material.Air then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+
+    -- Spinbot
+    if State.Spinbot then
+        spinAngle = (spinAngle + 8) % 360
+        root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(spinAngle), 0)
+    end
+
+    -- Fake Lag
+    if State.FakeLag then
+        fakelagTimer = fakelagTimer + dt
+        if fakelagTimer >= 0.1 then
+            fakelagTimer = 0
+            task.wait(0.05)
+        end
+    end
+
+    -- Rainbow Trail
+    if State.RainbowTrail then
+        if not trail or not trail.Parent then createTrail() end
+        rainbowHue = (rainbowHue + dt * 0.5) % 1
+        if trail then
+            trail.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0, Color3.fromHSV(rainbowHue, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.fromHSV((rainbowHue+0.5)%1, 1, 1))
+            }
+        end
+    elseif trail and trail.Parent then
+        trail:Destroy()
+        trail = nil
+    end
+
+    -- ESP рендер
+    if State.PlayerESP or State.BotESP or State.DistanceESP then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Player and p.Character then
+                local pr = p.Character:FindFirstChild("HumanoidRootPart")
+                if pr then
+                    -- подсветка через SelectionBox
+                    local box = pr:FindFirstChild("_ESPBox")
+                    if not box then
+                        box = Instance.new("SelectionBox")
+                        box.Name = "_ESPBox"
+                        box.Adornee = p.Character
+                        box.Parent = pr
+                    end
+                    if State.PlayerESP then
+                        box.Color3 = Color3.fromRGB(80,200,255)
+                        box.LineThickness = 0.05
+                        box.SurfaceTransparency = 0.85
+                        box.SurfaceColor3 = Color3.fromRGB(80,200,255)
+                        box.Visible = true
+                    elseif box then
+                        box.Visible = false
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Infinite Jump
+UserInputService.JumpRequest:Connect(function()
+    if State.InfiniteJump then
+        local hum = Character and Character:FindFirstChild("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- Перепривязка персонажа после respawn
+Player.CharacterAdded:Connect(function(char)
+    Character = char
+    Humanoid = char:WaitForChild("Humanoid")
+    RootPart = char:WaitForChild("HumanoidRootPart")
+    trail = nil
+    -- восстановить настройки
+    if State.SpeedHack then Humanoid.WalkSpeed = CONFIG.WalkSpeed end
+    if State.HighJump   then Humanoid.JumpPower = CONFIG.HighJumpPower end
+end)
+
+-- Анимация появления панели
+Main.Size = UDim2.new(0,520,0,0)
+Main.Position = UDim2.new(0.5,-260,0.5,0)
+tween(Main, {Size = UDim2.new(0,520,0,420), Position = UDim2.new(0.5,-260,0.5,-210)}, 0.4)
+
+notify("Admin Panel загружен! ✔")
+print("[AdminPanel] Загружен успешно.")
